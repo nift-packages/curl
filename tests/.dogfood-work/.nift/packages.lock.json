@@ -1,0 +1,7 @@
+{
+  "curl": {
+    "source": "/home/nick/Repositories/nift/nift-packages/curl",
+    "requested": "local",
+    "commit": "local"
+  }
+}
