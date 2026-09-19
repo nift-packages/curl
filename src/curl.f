@@ -1,8 +1,10 @@
-// curl package for Nift. Runtime dependency: the `curl` executable on PATH.
-// Public API: request() plus the HTTP verb helpers (direct exports) and the
-// `curl` struct for facility inspection (curl.available/version/features).
-// All implementation helpers are private. Nift itself carries no
-// libcurl/TLS/networking dependency.
+/*
+curl package for Nift. Runtime dependency: the `curl` executable on PATH.
+Public API: request() plus the HTTP verb helpers (direct exports) and the
+`curl` struct for facility inspection (curl.available/version/features).
+All implementation helpers are private. Nift itself carries no
+libcurl/TLS/networking dependency.
+*/
 
 fn(curl_available()) { return which("curl") != null }
 
