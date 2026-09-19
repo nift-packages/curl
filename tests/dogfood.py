@@ -61,6 +61,8 @@ port = server.server_address[1]
 threading.Thread(target=server.serve_forever, daemon=True).start()
 
 work = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".dogfood-work")
+import shutil
+shutil.rmtree(work, ignore_errors=True)
 os.makedirs(os.path.join(work, ".nift"), exist_ok=True)
 subprocess.run([NIFT, "add", PKG], cwd=work, check=True, capture_output=True)
 
