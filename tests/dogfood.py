@@ -112,6 +112,8 @@ print(saved.body == null)
 print(saved.output)
 print(curl.use_backend("auto").error_code)
 print(request("http://127.0.0.1:{port}/").status)
+setenv("PATH", pwd() + "/empty-path")
+print(curl.backend())
 """
 with open(os.path.join(work, "t.f"), "w") as f:
     f.write(script)
@@ -142,6 +144,7 @@ expected = [
     "download.bin",
     "backend_locked",
     "200",
+    "process",
 ]
 check("basic matrix", lines == expected, out.stdout + out.stderr)
 check("output file is not re-buffered", open(os.path.join(work, "download.bin"), "rb").read() == b"get-ok")

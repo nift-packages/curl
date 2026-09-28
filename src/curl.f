@@ -8,6 +8,7 @@
 
 curl_backend_requested := "auto"
 curl_backend_locked := false
+curl_backend_selected := ""
 curl_temp_seq := 0
 
 fn(curl_process_available()) {
@@ -20,6 +21,10 @@ fn(curl_backend_names()) {
 }
 
 fn(curl_resolved_backend()) {
+    if(curl_backend_locked) {
+        if(curl_backend_selected != "") { return curl_backend_selected }
+        return null
+    }
     if(curl_backend_requested == "process") {
         if(curl_process_available()) { return "process" }
         return null
@@ -143,8 +148,9 @@ fn(curl_headers_as_args(headers, args)) {
 }
 
 fn(curl_request_impl(url, opts)) {
-    curl_backend_locked = true
     backend := curl_resolved_backend()
+    if(backend != null) { curl_backend_selected = backend }
+    curl_backend_locked = true
     if(backend == null) {
         return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":null,"exit_code":127}
     }
