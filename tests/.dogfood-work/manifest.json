@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "curl": {
-      "source": "/home/nick/Repositories/nift/nift-packages/curl",
-      "ref": "local"
-    }
-  }
-}

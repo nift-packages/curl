@@ -49,6 +49,10 @@ class H(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         self._send(200, self.rfile.read(n))
 
+    def do_PATCH(self):
+        n = int(self.headers.get("Content-Length", 0))
+        self._send(200, self.rfile.read(n))
+
     def do_DELETE(self):
         self._send(200, b"deleted")
 
@@ -80,69 +84,110 @@ def check(name, cond, detail=""):
 script = f"""
 @import("curl")
 print(curl.available())
-print(request("http://127.0.0.1:{port}/").body)
-r := request("http://127.0.0.1:{port}/notfound")
+print(curl.backends().join(","))
+print(curl.backend())
+print(curl.use_backend("process").ok)
+print(curl.get("http://127.0.0.1:{port}/").body)
+r := curl.request("http://127.0.0.1:{port}/notfound")
 print(r.status)
 print(r.body)
-print(r.headers.get("content-type"))
-print(r.headers.get("set-cookie"))
-rd := request("http://127.0.0.1:{port}/redirect", {{"follow_redirects": true}})
+print(r.headers.get("content-type")[0])
+print(r.headers.get("set-cookie").join(";"))
+rd := curl.request("http://127.0.0.1:{port}/redirect", {{"follow_redirects": true}})
 print(rd.status)
-u := request("http://127.0.0.1:{port}/unicode")
+print(rd.headers.get("content-type")[0])
+u := curl.request("http://127.0.0.1:{port}/unicode")
 print(u.body)
-postr := post("http://127.0.0.1:{port}/", {{"json": {{"name": "Nift", "v": 4.4}}, "headers": {{"X-Custom": "hello world"}}}})
+postr := curl.post("http://127.0.0.1:{port}/", {{"json": {{"name": "Nift", "v": 4.4}}, "headers": {{"X-Custom": "hello world"}}}})
 print(postr.status)
 print(postr.body)
-print(delete("http://127.0.0.1:{port}/").body)
-print(head("http://127.0.0.1:{port}/").status)
+print(curl.put("http://127.0.0.1:{port}/", {{"json": {{"method": "put"}}}}).body)
+print(curl.patch("http://127.0.0.1:{port}/", {{"json": {{"method": "patch"}}}}).body)
+print(curl.delete("http://127.0.0.1:{port}/").body)
+print(curl.head("http://127.0.0.1:{port}/").status)
+print(curl.capabilities().streaming)
 print(curl.version().contains("curl"))
-print(curl.features().contains("HTTP2"))
+saved := curl.get("http://127.0.0.1:{port}/", {{"output": "download.bin"}})
+print(saved.body == null)
+print(saved.output)
+print(curl.use_backend("auto").error_code)
+print(request("http://127.0.0.1:{port}/").status)
 """
 with open(os.path.join(work, "t.f"), "w") as f:
     f.write(script)
-out = subprocess.run([NIFT, "run", "t.f"], cwd=work, capture_output=True, text=True)
+out = subprocess.run([NIFT, "t.f"], cwd=work, capture_output=True, text=True)
 lines = out.stdout.strip().splitlines()
 expected = [
+    "true",
+    "process",
+    "process",
     "true",
     "get-ok",
     "404",
     "nope",
     "text/plain",
-    "a=1; b=2",
+    "a=1;b=2",
     "200",
+    "text/plain",
     "héllo ünïcode",
     "200",
     '{"name":"Nift","v":4.4}',
+    '{"method":"put"}',
+    '{"method":"patch"}',
     "deleted",
     "200",
+    "false",
     "true",
     "true",
+    "download.bin",
+    "backend_locked",
+    "200",
 ]
 check("basic matrix", lines == expected, out.stdout + out.stderr)
+check("output file is not re-buffered", open(os.path.join(work, "download.bin"), "rb").read() == b"get-ok")
 
 # Privacy: private helpers must not be visible to the importer.
 with open(os.path.join(work, "priv.f"), "w") as f:
     f.write('@import("curl")\nprint(curl_parse_headers)\n')
-priv = subprocess.run([NIFT, "run", "priv.f"], cwd=work, capture_output=True, text=True)
+priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True)
 check("private helpers not leaked", priv.returncode != 0)
 
-# --no-process: requests fail through the process restriction.
-np = subprocess.run([NIFT, "run", "t.f", "--no-process"], cwd=work, capture_output=True, text=True)
-check("--no-process denies requests", np.returncode != 0 and "process execution disabled" in np.stderr)
+# --no-process: package reports backend unavailability without invoking run().
+with open(os.path.join(work, "np.f"), "w") as f:
+    f.write(f'@import("curl")\nr := curl.get("http://127.0.0.1:{port}/")\nprint(r.error_code)\n')
+np = subprocess.run([NIFT, "np.f", "--no-process"], cwd=work, capture_output=True, text=True)
+check("--no-process is structured", np.returncode == 0 and np.stdout.strip() == "backend_unavailable", np.stdout + np.stderr)
 
-# missing curl: available() is false.
-nocurl = subprocess.run(
-    [NIFT, "run", "nc.f"],
-    cwd=work,
-    capture_output=True,
-    text=True,
-    env={**os.environ, "PATH": "/usr/bin:/bin"},
-)
-# curl is at /usr/bin/curl, so this checks that available() is true on the normal PATH.
 with open(os.path.join(work, "nc.f"), "w") as f:
+    f.write('@import("curl")\nprint(curl.available())\nprint(curl.backends().size())\nr := curl.get("http://example.invalid")\nprint(r.error_code)\n')
+missing_path = os.path.join(work, "empty-path")
+os.makedirs(missing_path, exist_ok=True)
+nocurl = subprocess.run([NIFT, "nc.f"], cwd=work, capture_output=True, text=True, env={**os.environ, "PATH": missing_path})
+check("missing curl is structured", nocurl.returncode == 0 and nocurl.stdout.strip().splitlines() == ["false", "0", "backend_unavailable"], nocurl.stdout + nocurl.stderr)
+
+with open(os.path.join(work, "available.f"), "w") as f:
     f.write('@import("curl")\nprint(curl.available())\n')
-avail = subprocess.run([NIFT, "run", "nc.f"], cwd=work, capture_output=True, text=True)
+avail = subprocess.run([NIFT, "available.f"], cwd=work, capture_output=True, text=True)
 check("curl.available", avail.stdout.strip() == "true", avail.stdout + avail.stderr)
+
+# A process-only PATH exercises the checked package-local temporary fallback.
+curl_path = shutil.which("curl")
+if curl_path is not None:
+    curl_only = os.path.join(work, "curl-only-path")
+    os.makedirs(curl_only, exist_ok=True)
+    exposed_curl = os.path.join(curl_only, "curl.exe" if os.name == "nt" else "curl")
+    try:
+        os.symlink(curl_path, exposed_curl)
+    except (OSError, NotImplementedError):
+        shutil.copy2(curl_path, exposed_curl)
+    fallback = subprocess.run(
+        [NIFT, "t.f"],
+        cwd=work,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": curl_only, "TMPDIR": work, "TEMP": work, "TMP": work},
+    )
+    check("temporary-file fallback", fallback.returncode == 0 and fallback.stdout.strip().splitlines() == expected, fallback.stdout + fallback.stderr)
 
 server.shutdown()
 if failures:
