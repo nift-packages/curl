@@ -11,276 +11,299 @@ curl_backend_locked := false
 curl_backend_selected := ""
 curl_temp_seq := 0
 
-fn(curl_process_available()) {
-    return getenv("NIFT_NO_PROCESS") == null && which("curl") != null
-}
-
-fn(curl_backend_names()) {
-    if(curl_process_available()) { return ["process"] }
-    return []
-}
-
-fn(curl_resolved_backend()) {
-    if(curl_backend_locked) {
-        if(curl_backend_selected != "") { return curl_backend_selected }
-        return null
-    }
-    if(curl_backend_requested == "process") {
-        if(curl_process_available()) { return "process" }
-        return null
-    }
-    if(curl_backend_requested == "auto" && curl_process_available()) { return "process" }
-    return null
-}
-
-fn(curl_use_backend(name)) {
-    if(curl_backend_locked) {
-        return {"ok":false,"error":"curl backend is already selected","error_code":"backend_locked","backend":curl_resolved_backend()}
-    }
-    if(name != "auto" && name != "process" && name != "ffi" && name != "native") {
-        return {"ok":false,"error":"unknown curl backend: " + name,"error_code":"unknown_backend","backend":curl_resolved_backend()}
-    }
-    if(name != "auto" && name != "process") {
-        return {"ok":false,"error":"curl backend is not implemented: " + name,"error_code":"backend_unavailable","backend":curl_resolved_backend()}
-    }
-    if(name == "process" && !curl_process_available()) {
-        return {"ok":false,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":curl_resolved_backend()}
-    }
-    curl_backend_requested = name
-    return {"ok":true,"error":"","error_code":"","backend":curl_resolved_backend()}
-}
-
-fn(curl_available()) { return curl_resolved_backend() != null }
-
-fn(curl_temp_root()) {
-    root := getenv("TMPDIR")
-    if(root == null || root == "") { root = getenv("TEMP") }
-    if(root == null || root == "") { root = getenv("TMP") }
-    if(root == null || root == "") { root = pwd() }
-    return root
-}
-
-fn(curl_temp_file()) {
-    if(which("mktemp") != null) {
-        m := run("mktemp")
-        if(m.exit_code == 0 && m.stdout.trim() != "") { return m.stdout.trim() }
-    }
-    if(os() == "windows" && which("powershell.exe") != null) {
-        p := run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[System.IO.Path]::GetTempFileName()")
-        if(p.exit_code == 0 && p.stdout.trim() != "") { return p.stdout.trim() }
-    }
-    attempts := 0
-    while(attempts < 1000) {
-        curl_temp_seq += 1
-        candidate := curl_temp_root() + "/.nift-curl-" + curl_temp_seq.to_string() + ".tmp"
-        if(!exists(candidate)) {
-            touch(candidate)
-            return candidate
+// Methods execute in receiver scope, so a private closure bridges package-wide
+// state without copying it into each curl instance.
+struct(curl) {
+    private state := (action, ...rest) => {
+        if(action == "backend_requested") {
+            if(rest.size() > 0) { curl_backend_requested = rest[0] }
+            return curl_backend_requested
         }
-        attempts += 1
+        if(action == "backend_locked") {
+            if(rest.size() > 0) { curl_backend_locked = rest[0] }
+            return curl_backend_locked
+        }
+        if(action == "backend_selected") {
+            if(rest.size() > 0) { curl_backend_selected = rest[0] }
+            return curl_backend_selected
+        }
+        curl_temp_seq += 1
+        return curl_temp_seq
     }
-    return ""
-}
 
-fn(curl_write_temp(content)) {
-    temp := curl_temp_file()
-    if(temp == "") { return "" }
-    f := file(temp)
-    f.open("w")
-    f.write(content)
-    f.save()
-    f.close()
-    return temp
-}
+    private fn(process_available()) {
+        return getenv("NIFT_NO_PROCESS") == null && which("curl") != null
+    }
 
-fn(curl_parse_headers(text)) {
-    h := map()
-    lines := text.split("\r\n")
-    if(lines.size() == 1) { lines = text.split("\n") }
-    for(line : lines) {
-        normalized := line.to_lower().trim()
-        if(normalized.index_of("http/") == 0) {
-            // curl -D writes every response block; retain only the final block.
-            h = map()
-        } else if(line.contains(":")) {
-            colon := line.index_of(":")
-            if(colon > 0) {
-                hname := line.substr(0, colon).to_lower().trim()
-                value := line.substr(colon + 1).trim()
-                if(hname.index_of("http/") != 0) {
-                    if(h.contains(hname)) {
-                        cur := h.get(hname)
-                        if(type(cur) == "array") { cur.push(value) } else { h.set(hname, [cur, value]) }
-                    } else {
-                        h.set(hname, value)
+    fn(available()) { return this.backend() != null }
+
+    fn(backends()) {
+        if(this.process_available()) { return ["process"] }
+        return []
+    }
+
+    fn(backend()) {
+        if(this.state("backend_locked")) {
+            selected := this.state("backend_selected")
+            if(selected != "") { return selected }
+            return null
+        }
+        requested := this.state("backend_requested")
+        if(requested == "process") {
+            if(this.process_available()) { return "process" }
+            return null
+        }
+        if(requested == "auto" && this.process_available()) { return "process" }
+        return null
+    }
+
+    fn(use_backend(name)) {
+        if(this.state("backend_locked")) {
+            return {"ok":false,"error":"curl backend is already selected","error_code":"backend_locked","backend":this.backend()}
+        }
+        if(name != "auto" && name != "process" && name != "ffi" && name != "native") {
+            return {"ok":false,"error":"unknown curl backend: " + name,"error_code":"unknown_backend","backend":this.backend()}
+        }
+        if(name != "auto" && name != "process") {
+            return {"ok":false,"error":"curl backend is not implemented: " + name,"error_code":"backend_unavailable","backend":this.backend()}
+        }
+        if(name == "process" && !this.process_available()) {
+            return {"ok":false,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":this.backend()}
+        }
+        this.state("backend_requested", name)
+        return {"ok":true,"error":"","error_code":"","backend":this.backend()}
+    }
+
+    fn(capabilities()) {
+        return {"buffered":true,"output_file":true,"streaming":false,"websocket":false}
+    }
+
+    fn(version()) {
+        r := run("curl", "--version")
+        if(r.exit_code != 0) { return "" }
+        return r.stdout.split("\n")[0]
+    }
+
+    fn(features()) {
+        r := run("curl", "--version")
+        if(r.exit_code != 0) { return "" }
+        return r.stdout
+    }
+
+    private fn(temp_root()) {
+        root := getenv("TMPDIR")
+        if(root == null || root == "") { root = getenv("TEMP") }
+        if(root == null || root == "") { root = getenv("TMP") }
+        if(root == null || root == "") { root = pwd() }
+        return root
+    }
+
+    private fn(temp_file()) {
+        if(which("mktemp") != null) {
+            m := run("mktemp")
+            if(m.exit_code == 0 && m.stdout.trim() != "") { return m.stdout.trim() }
+        }
+        if(os() == "windows" && which("powershell.exe") != null) {
+            p := run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[System.IO.Path]::GetTempFileName()")
+            if(p.exit_code == 0 && p.stdout.trim() != "") { return p.stdout.trim() }
+        }
+        attempts := 0
+        while(attempts < 1000) {
+            seq := this.state("next_temp_seq")
+            candidate := this.temp_root() + "/.nift-curl-" + seq.to_string() + ".tmp"
+            if(!exists(candidate)) {
+                touch(candidate)
+                return candidate
+            }
+            attempts += 1
+        }
+        return ""
+    }
+
+    private fn(write_temp(content)) {
+        temp := this.temp_file()
+        if(temp == "") { return "" }
+        f := file(temp)
+        f.open("w")
+        f.write(content)
+        f.save()
+        f.close()
+        return temp
+    }
+
+    private fn(parse_headers(text)) {
+        h := map()
+        lines := text.split("\r\n")
+        if(lines.size() == 1) { lines = text.split("\n") }
+        for(line : lines) {
+            normalized := line.to_lower().trim()
+            if(normalized.index_of("http/") == 0) {
+                // curl -D writes every response block; retain only the final block.
+                h = map()
+            } else if(line.contains(":")) {
+                colon := line.index_of(":")
+                if(colon > 0) {
+                    hname := line.substr(0, colon).to_lower().trim()
+                    value := line.substr(colon + 1).trim()
+                    if(hname.index_of("http/") != 0) {
+                        if(h.contains(hname)) {
+                            cur := h.get(hname)
+                            if(type(cur) == "array") { cur.push(value) } else { h.set(hname, [cur, value]) }
+                        } else {
+                            h.set(hname, value)
+                        }
                     }
                 }
             }
         }
+        // Arrays preserve repeated fields such as Set-Cookie without inventing a
+        // delimiter that is invalid for some HTTP headers.
+        entries := []
+        for((k, v) : h) {
+            if(type(v) == "array") { entries.push({"key": k, "value": v}) }
+            else { entries.push({"key": k, "value": [v]}) }
+        }
+        return entries.from_entries()
     }
-    // Arrays preserve repeated fields such as Set-Cookie without inventing a
-    // delimiter that is invalid for some HTTP headers.
-    entries := []
-    for((k, v) : h) {
-        if(type(v) == "array") { entries.push({"key": k, "value": v}) }
-        else { entries.push({"key": k, "value": [v]}) }
+
+    private fn(header_text(v)) {
+        if(type(v) == "string") { return v }
+        return v.to_string()
     }
-    return entries.from_entries()
-}
 
-fn(curl_header_text(v)) {
-    if(type(v) == "string") { return v }
-    return v.to_string()
-}
-
-fn(curl_headers_as_args(headers, args)) {
-    if(headers != null && type(headers) == "object") {
-        for(k : headers.keys()) {
-            v := headers.get(k)
-            if(type(v) == "array") {
-                for(item : v) { args.push("-H"); args.push(k + ": " + curl_header_text(item)) }
-            } else {
-                args.push("-H"); args.push(k + ": " + curl_header_text(v))
+    private fn(headers_as_args(headers, args)) {
+        if(headers != null && type(headers) == "object") {
+            for(k : headers.keys()) {
+                v := headers.get(k)
+                if(type(v) == "array") {
+                    for(item : v) { args.push("-H"); args.push(k + ": " + this.header_text(item)) }
+                } else {
+                    args.push("-H"); args.push(k + ": " + this.header_text(v))
+                }
             }
         }
+        return null
     }
-    return null
-}
 
-fn(curl_request_impl(url, opts)) {
-    backend := curl_resolved_backend()
-    if(backend != null) { curl_backend_selected = backend }
-    curl_backend_locked = true
-    if(backend == null) {
-        return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":null,"exit_code":127}
-    }
-    args := ["-sS"]
-    method := "GET"
-    timeout := 0
-    follow := false
-    output := ""
-    body := ""
-    use_json := false
-    headers := {}
-    if(opts != null) {
-        method = opts.get("method", "GET")
-        timeout = opts.get("timeout", 0)
-        follow = opts.get("follow_redirects", false)
-        output = opts.get("output", "")
-        body = opts.get("body", "")
-        use_json = opts.has("json")
-        headers = opts.get("headers", {})
-    }
-    curl_headers_as_args(headers, args)
-    bodytemp := ""
-    if(use_json) {
-        json_value := opts.get("json")
-        bodytemp = curl_write_temp(json_value.stringify())
-        if(bodytemp == "") { return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create request body temporary file","error_code":"temporary_file","backend":backend,"exit_code":null} }
-        args.push("--data-binary"); args.push("@" + bodytemp)
-        args.push("-H"); args.push("Content-Type: application/json")
-    } else if(body != "") {
-        bodytemp = curl_write_temp(body)
-        if(bodytemp == "") { return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create request body temporary file","error_code":"temporary_file","backend":backend,"exit_code":null} }
-        args.push("--data-binary"); args.push("@" + bodytemp)
-    }
-    if(method != "GET") { args.push("-X"); args.push(method) }
-    if(follow) { args.push("-L") }
-    if(timeout > 0) { args.push("--max-time"); args.push(timeout.to_string()) }
-    args.push("-w"); args.push("%{http_code}")
-    header_temp := curl_temp_file()
-    if(header_temp == "") {
-        if(bodytemp != "") { remove(bodytemp) }
-        return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create response header temporary file","error_code":"temporary_file","backend":backend,"exit_code":null}
-    }
-    args.push("-D"); args.push(header_temp)
-    body_temp := ""
-    if(output != "") { args.push("-o"); args.push(output) }
-    else {
-        body_temp = curl_temp_file()
-        if(body_temp == "") {
-            if(bodytemp != "") { remove(bodytemp) }
-            remove(header_temp)
-            return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create response body temporary file","error_code":"temporary_file","backend":backend,"exit_code":null}
+    fn(request(url, ...rest)) {
+        backend := this.backend()
+        if(backend != null) { this.state("backend_selected", backend) }
+        this.state("backend_locked", true)
+        if(backend == null) {
+            return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":null,"exit_code":127}
         }
-        args.push("-o"); args.push(body_temp)
-    }
-    args.push("--")
-    args.push(url)
-    r := run("curl", ...args)
-    if(bodytemp != "") { remove(bodytemp) }
-    if(r.exit_code != 0) {
+        args := ["-sS"]
+        method := "GET"
+        timeout := 0
+        follow := false
+        output := ""
+        body := ""
+        use_json := false
+        headers := {}
+        opts := this.opt_at(rest, 0)
+        if(opts != null) {
+            method = opts.get("method", "GET")
+            timeout = opts.get("timeout", 0)
+            follow = opts.get("follow_redirects", false)
+            output = opts.get("output", "")
+            body = opts.get("body", "")
+            use_json = opts.has("json")
+            headers = opts.get("headers", {})
+        }
+        this.headers_as_args(headers, args)
+        bodytemp := ""
+        if(use_json) {
+            json_value := opts.get("json")
+            bodytemp = this.write_temp(json_value.stringify())
+            if(bodytemp == "") { return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create request body temporary file","error_code":"temporary_file","backend":backend,"exit_code":null} }
+            args.push("--data-binary"); args.push("@" + bodytemp)
+            args.push("-H"); args.push("Content-Type: application/json")
+        } else if(body != "") {
+            bodytemp = this.write_temp(body)
+            if(bodytemp == "") { return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create request body temporary file","error_code":"temporary_file","backend":backend,"exit_code":null} }
+            args.push("--data-binary"); args.push("@" + bodytemp)
+        }
+        if(method != "GET") { args.push("-X"); args.push(method) }
+        if(follow) { args.push("-L") }
+        if(timeout > 0) { args.push("--max-time"); args.push(timeout.to_string()) }
+        args.push("-w"); args.push("%{http_code}")
+        header_temp := this.temp_file()
+        if(header_temp == "") {
+            if(bodytemp != "") { remove(bodytemp) }
+            return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create response header temporary file","error_code":"temporary_file","backend":backend,"exit_code":null}
+        }
+        args.push("-D"); args.push(header_temp)
+        body_temp := ""
+        if(output != "") { args.push("-o"); args.push(output) }
+        else {
+            body_temp = this.temp_file()
+            if(body_temp == "") {
+                if(bodytemp != "") { remove(bodytemp) }
+                remove(header_temp)
+                return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"cannot create response body temporary file","error_code":"temporary_file","backend":backend,"exit_code":null}
+            }
+            args.push("-o"); args.push(body_temp)
+        }
+        args.push("--")
+        args.push(url)
+        r := run("curl", ...args)
+        if(bodytemp != "") { remove(bodytemp) }
+        if(r.exit_code != 0) {
+            if(header_temp != "") { remove(header_temp) }
+            if(body_temp != "") { remove(body_temp) }
+            error_code := "transport_failure"
+            if(r.exit_code == 28) { error_code = "timeout" }
+            else if(r.exit_code == 23 || r.exit_code == 26) { error_code = "file_error" }
+            if(output != "") {
+                return {"ok":false,"status":0,"headers":{},"body":null,"output":output,"error":r.stderr,"error_code":error_code,"backend":backend,"exit_code":r.exit_code}
+            }
+            return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":r.stderr,"error_code":error_code,"backend":backend,"exit_code":r.exit_code}
+        }
+        status := 0
+        code := r.stdout.trim()
+        if(code != "") { status = code.to_int() }
+        headers_obj := {}
+        headers_obj = this.parse_headers(open(header_temp))
+        resp_body := ""
+        if(body_temp != "") { resp_body = open(body_temp) }
         if(header_temp != "") { remove(header_temp) }
         if(body_temp != "") { remove(body_temp) }
-        error_code := "transport_failure"
-        if(r.exit_code == 28) { error_code = "timeout" }
-        else if(r.exit_code == 23 || r.exit_code == 26) { error_code = "file_error" }
         if(output != "") {
-            return {"ok":false,"status":0,"headers":{},"body":null,"output":output,"error":r.stderr,"error_code":error_code,"backend":backend,"exit_code":r.exit_code}
+            return {"ok":true,"status":status,"headers":headers_obj,"body":null,"output":output,"error":"","error_code":"","backend":backend,"exit_code":r.exit_code}
         }
-        return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":r.stderr,"error_code":error_code,"backend":backend,"exit_code":r.exit_code}
+        return {"ok":true,"status":status,"headers":headers_obj,"body":resp_body,"output":null,"error":"","error_code":"","backend":backend,"exit_code":r.exit_code}
     }
-    status := 0
-    code := r.stdout.trim()
-    if(code != "") { status = code.to_int() }
-    headers_obj := {}
-    headers_obj = curl_parse_headers(open(header_temp))
-    resp_body := ""
-    if(body_temp != "") { resp_body = open(body_temp) }
-    if(header_temp != "") { remove(header_temp) }
-    if(body_temp != "") { remove(body_temp) }
-    if(output != "") {
-        return {"ok":true,"status":status,"headers":headers_obj,"body":null,"output":output,"error":"","error_code":"","backend":backend,"exit_code":r.exit_code}
+
+    private fn(merge_opts(opts, method)) {
+        if(opts == null) { return {"method": method} }
+        return opts.merge({"method": method})
     }
-    return {"ok":true,"status":status,"headers":headers_obj,"body":resp_body,"output":null,"error":"","error_code":"","backend":backend,"exit_code":r.exit_code}
+
+    private fn(opt_at(rest, i)) {
+        if(i < rest.size()) { return rest[i] }
+        return null
+    }
+
+    fn(get(url, ...rest)) { return this.request(url, this.merge_opts(this.opt_at(rest, 0), "GET")) }
+    fn(post(url, ...rest)) { return this.request(url, this.merge_opts(this.opt_at(rest, 0), "POST")) }
+    fn(put(url, ...rest)) { return this.request(url, this.merge_opts(this.opt_at(rest, 0), "PUT")) }
+    fn(patch(url, ...rest)) { return this.request(url, this.merge_opts(this.opt_at(rest, 0), "PATCH")) }
+    fn(delete(url, ...rest)) { return this.request(url, this.merge_opts(this.opt_at(rest, 0), "DELETE")) }
+    fn(head(url, ...rest)) { return this.request(url, this.merge_opts(this.opt_at(rest, 0), "HEAD")) }
 }
 
-fn(curl_merge_opts(opts, method)) {
-    if(opts == null) { return {"method": method} }
-    return opts.merge({"method": method})
-}
+curl := curl()
+curl_alias_target := curl
 
-fn(curl_version_text()) {
-    r := run("curl", "--version")
-    if(r.exit_code != 0) { return "" }
-    return r.stdout.split("\n")[0]
-}
+// Deprecated v0.x compatibility aliases delegate through the public facade.
+request := (url, ...rest) => curl_alias_target.request(url, ...rest)
+get := (url, ...rest) => curl_alias_target.get(url, ...rest)
+post := (url, ...rest) => curl_alias_target.post(url, ...rest)
+put := (url, ...rest) => curl_alias_target.put(url, ...rest)
+patch := (url, ...rest) => curl_alias_target.patch(url, ...rest)
+delete := (url, ...rest) => curl_alias_target.delete(url, ...rest)
+head := (url, ...rest) => curl_alias_target.head(url, ...rest)
 
-fn(curl_features_text()) {
-    r := run("curl", "--version")
-    if(r.exit_code != 0) { return "" }
-    return r.stdout
-}
-
-// Public API: request() and convenience verbs exported directly; the `curl`
-// struct exports facility inspection. opts is optional.
-fn(curl_opt_at(rest, i)) { if(i < rest.size()) { return rest[i] } return null }
-request := (url, ...rest) => curl_request_impl(url, curl_opt_at(rest, 0))
-get := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "GET"))
-post := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "POST"))
-put := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "PUT"))
-patch := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "PATCH"))
-delete := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "DELETE"))
-head := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "HEAD"))
-
-@struct(curl_api) {
-    available := () => curl_available()
-    backends := () => curl_backend_names()
-    backend := () => curl_resolved_backend()
-    use_backend := (name) => curl_use_backend(name)
-    capabilities := () => { return {"buffered":true,"output_file":true,"streaming":false,"websocket":false} }
-    version := () => curl_version_text()
-    features := () => curl_features_text()
-    request := (url, ...rest) => curl_request_impl(url, curl_opt_at(rest, 0))
-    get := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "GET"))
-    post := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "POST"))
-    put := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "PUT"))
-    patch := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "PATCH"))
-    delete := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "DELETE"))
-    head := (url, ...rest) => curl_request_impl(url, curl_merge_opts(curl_opt_at(rest, 0), "HEAD"))
-}
-
-curl := curl_api()
 export(request)
 export(get)
 export(post)

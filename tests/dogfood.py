@@ -155,6 +155,13 @@ with open(os.path.join(work, "priv.f"), "w") as f:
 priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True)
 check("private helpers not leaked", priv.returncode != 0)
 
+# Compatibility aliases retain the original facade when the consumer rebinds
+# the separately exported curl binding.
+with open(os.path.join(work, "alias-pin.f"), "w") as f:
+    f.write(f'@import("curl")\ncurl = "reassigned"\nprint(get("http://127.0.0.1:{port}/").body)\n')
+alias_pin = subprocess.run([NIFT, "alias-pin.f"], cwd=work, capture_output=True, text=True)
+check("compatibility aliases pin facade", alias_pin.returncode == 0 and alias_pin.stdout.strip() == "get-ok", alias_pin.stdout + alias_pin.stderr)
+
 # --no-process: package reports backend unavailability without invoking run().
 with open(os.path.join(work, "np.f"), "w") as f:
     f.write(f'@import("curl")\nr := curl.get("http://127.0.0.1:{port}/")\nprint(r.error_code)\n')
