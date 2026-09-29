@@ -151,9 +151,9 @@ check("output file is not re-buffered", open(os.path.join(work, "download.bin"),
 
 # Privacy: private helpers must not be visible to the importer.
 with open(os.path.join(work, "priv.f"), "w") as f:
-    f.write('@import("curl")\nprint(curl_parse_headers)\n')
+    f.write('@import("curl")\nprint(curl.parse_headers(""))\n')
 priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True)
-check("private helpers not leaked", priv.returncode != 0)
+check("private methods not leaked", priv.returncode != 0)
 
 # Compatibility aliases retain the original facade when the consumer rebinds
 # the separately exported curl binding.
@@ -161,6 +161,90 @@ with open(os.path.join(work, "alias-pin.f"), "w") as f:
     f.write(f'@import("curl")\ncurl = "reassigned"\nprint(get("http://127.0.0.1:{port}/").body)\n')
 alias_pin = subprocess.run([NIFT, "alias-pin.f"], cwd=work, capture_output=True, text=True)
 check("compatibility aliases pin facade", alias_pin.returncode == 0 and alias_pin.stdout.strip() == "get-ok", alias_pin.stdout + alias_pin.stderr)
+
+# Fresh and copied facades share package-global backend/temp state. Consumer
+# bindings matching implementation globals and every method parameter name
+# must not shadow the methods' captured module bindings or call parameters.
+fake_bin = os.path.join(work, "fake-bin")
+shared_temp = os.path.join(work, "shared-temp")
+os.makedirs(fake_bin, exist_ok=True)
+os.makedirs(shared_temp, exist_ok=True)
+fake_log = os.path.join(work, "fake-curl.log")
+fake_curl = os.path.join(fake_bin, "curl.exe" if os.name == "nt" else "curl")
+with open(fake_curl, "w") as f:
+    f.write(f"""#!{sys.executable}
+import os
+import sys
+
+args = sys.argv[1:]
+header = args[args.index("-D") + 1]
+output = args[args.index("-o") + 1]
+with open(os.environ["FAKE_CURL_LOG"], "a") as log:
+    log.write(os.path.basename(header) + "," + os.path.basename(output) + "\\n")
+with open(header, "w") as response_headers:
+    response_headers.write("HTTP/1.1 200 OK\\r\\nContent-Type: text/plain\\r\\n\\r\\n")
+with open(output, "w") as response_body:
+    response_body.write("fake-ok")
+sys.stdout.write("200")
+""")
+os.chmod(fake_curl, 0o755)
+with open(os.path.join(work, "shared-state.f"), "w") as f:
+    f.write('''curl_backend_requested := "native"
+curl_backend_locked := true
+curl_backend_selected := "hijacked"
+curl_temp_seq := 900
+curl_alias_target := "hijacked"
+content := "hijacked"
+text := "hijacked"
+v := "hijacked"
+headers := "hijacked"
+args := "hijacked"
+url := "hijacked"
+rest := "hijacked"
+opts := "hijacked"
+method := "hijacked"
+i := "hijacked"
+@import("curl")
+fresh := curl()
+copy := curl
+print(fresh.use_backend("process").ok)
+print(curl.get("http://fake/exported").body)
+print(fresh.get("http://fake/fresh").body)
+print(copy.get("http://fake/copy").body)
+print(get("http://fake/alias").body)
+print(fresh.use_backend("auto").error_code)
+print(copy.backend())
+''')
+shared = subprocess.run(
+    [NIFT, "shared-state.f"],
+    cwd=work,
+    capture_output=True,
+    text=True,
+    env={
+        **os.environ,
+        "PATH": fake_bin,
+        "TMPDIR": shared_temp,
+        "TEMP": shared_temp,
+        "TMP": shared_temp,
+        "FAKE_CURL_LOG": fake_log,
+    },
+)
+shared_expected = ["true", "fake-ok", "fake-ok", "fake-ok", "fake-ok", "backend_locked", "process"]
+sequence_expected = [
+    ".nift-curl-1.tmp,.nift-curl-2.tmp",
+    ".nift-curl-3.tmp,.nift-curl-4.tmp",
+    ".nift-curl-5.tmp,.nift-curl-6.tmp",
+    ".nift-curl-7.tmp,.nift-curl-8.tmp",
+]
+sequence = []
+if os.path.exists(fake_log):
+    with open(fake_log) as f:
+        sequence = f.read().strip().splitlines()
+check(
+    "fresh/copy shared state and lexical isolation",
+    shared.returncode == 0 and shared.stdout.strip().splitlines() == shared_expected and sequence == sequence_expected,
+    shared.stdout + shared.stderr + "\n" + "\n".join(sequence),
+)
 
 # --no-process: package reports backend unavailability without invoking run().
 with open(os.path.join(work, "np.f"), "w") as f:

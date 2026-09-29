@@ -11,26 +11,7 @@ curl_backend_locked := false
 curl_backend_selected := ""
 curl_temp_seq := 0
 
-// Methods execute in receiver scope, so a private closure bridges package-wide
-// state without copying it into each curl instance.
 struct(curl) {
-    private state := (action, ...rest) => {
-        if(action == "backend_requested") {
-            if(rest.size() > 0) { curl_backend_requested = rest[0] }
-            return curl_backend_requested
-        }
-        if(action == "backend_locked") {
-            if(rest.size() > 0) { curl_backend_locked = rest[0] }
-            return curl_backend_locked
-        }
-        if(action == "backend_selected") {
-            if(rest.size() > 0) { curl_backend_selected = rest[0] }
-            return curl_backend_selected
-        }
-        curl_temp_seq += 1
-        return curl_temp_seq
-    }
-
     private fn(process_available()) {
         return getenv("NIFT_NO_PROCESS") == null && which("curl") != null
     }
@@ -43,22 +24,20 @@ struct(curl) {
     }
 
     fn(backend()) {
-        if(this.state("backend_locked")) {
-            selected := this.state("backend_selected")
-            if(selected != "") { return selected }
+        if(curl_backend_locked) {
+            if(curl_backend_selected != "") { return curl_backend_selected }
             return null
         }
-        requested := this.state("backend_requested")
-        if(requested == "process") {
+        if(curl_backend_requested == "process") {
             if(this.process_available()) { return "process" }
             return null
         }
-        if(requested == "auto" && this.process_available()) { return "process" }
+        if(curl_backend_requested == "auto" && this.process_available()) { return "process" }
         return null
     }
 
     fn(use_backend(name)) {
-        if(this.state("backend_locked")) {
+        if(curl_backend_locked) {
             return {"ok":false,"error":"curl backend is already selected","error_code":"backend_locked","backend":this.backend()}
         }
         if(name != "auto" && name != "process" && name != "ffi" && name != "native") {
@@ -70,7 +49,7 @@ struct(curl) {
         if(name == "process" && !this.process_available()) {
             return {"ok":false,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":this.backend()}
         }
-        this.state("backend_requested", name)
+        curl_backend_requested = name
         return {"ok":true,"error":"","error_code":"","backend":this.backend()}
     }
 
@@ -109,8 +88,8 @@ struct(curl) {
         }
         attempts := 0
         while(attempts < 1000) {
-            seq := this.state("next_temp_seq")
-            candidate := this.temp_root() + "/.nift-curl-" + seq.to_string() + ".tmp"
+            curl_temp_seq += 1
+            candidate := this.temp_root() + "/.nift-curl-" + curl_temp_seq.to_string() + ".tmp"
             if(!exists(candidate)) {
                 touch(candidate)
                 return candidate
@@ -187,8 +166,8 @@ struct(curl) {
 
     fn(request(url, ...rest)) {
         backend := this.backend()
-        if(backend != null) { this.state("backend_selected", backend) }
-        this.state("backend_locked", true)
+        if(backend != null) { curl_backend_selected = backend }
+        curl_backend_locked = true
         if(backend == null) {
             return {"ok":false,"status":0,"headers":{},"body":null,"output":null,"error":"curl process backend is unavailable","error_code":"backend_unavailable","backend":null,"exit_code":127}
         }
