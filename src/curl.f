@@ -75,6 +75,31 @@ fn(curl_headers_as_args(headers, args)) {
     return null
 }
 
+fn(curl_status_digit(value)) {
+    if(value == "0") { return 0 }
+    if(value == "1") { return 1 }
+    if(value == "2") { return 2 }
+    if(value == "3") { return 3 }
+    if(value == "4") { return 4 }
+    if(value == "5") { return 5 }
+    if(value == "6") { return 6 }
+    if(value == "7") { return 7 }
+    if(value == "8") { return 8 }
+    if(value == "9") { return 9 }
+    return null
+}
+
+fn(curl_status_code(output)) {
+    value := output.trim()
+    if(value.length() < 3) { return null }
+    value = value.substr(value.length() - 3)
+    hundreds := curl_status_digit(value.substr(0, 1))
+    tens := curl_status_digit(value.substr(1, 1))
+    ones := curl_status_digit(value.substr(2, 1))
+    if(hundreds == null || tens == null || ones == null) { return null }
+    return hundreds * 100 + tens * 10 + ones
+}
+
 fn(curl_request_impl(url, opts)) {
     if(!curl_available()) { return {"ok":false,"status":0,"headers":{},"body":"","exit_code":127,"error":"curl executable not found"} }
     args := ["-sS"]
@@ -122,9 +147,12 @@ fn(curl_request_impl(url, opts)) {
         if(body_temp != "") { remove(body_temp) }
         return {"ok":false,"status":0,"headers":{},"body":"","exit_code":r.exit_code,"error":r.stderr}
     }
-    status := 0
-    code := r.stdout.trim()
-    if(code != "") { status = code.to_int() }
+    status := curl_status_code(r.stdout)
+    if(status == null) {
+        if(header_temp != "") { remove(header_temp) }
+        if(body_temp != "") { remove(body_temp) }
+        return {"ok":false,"status":0,"headers":{},"body":"","exit_code":r.exit_code,"error":"curl returned an invalid HTTP status"}
+    }
     headers_obj := {}
     if(header_temp != "") { headers_obj = curl_parse_headers(open(header_temp)) }
     resp_body := ""
