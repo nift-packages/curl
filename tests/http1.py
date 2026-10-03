@@ -130,8 +130,10 @@ server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
 port = server.server_address[1]
 threading.Thread(target=server.serve_forever, daemon=True).start()
 
-work = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".http1-work")
-shutil.rmtree(work, ignore_errors=True)
+import tempfile
+# Keep the work directory OUTSIDE the package root (see dogfood.py): a work dir
+# nested inside the package recurses on Windows where local packages are copied.
+work = tempfile.mkdtemp(prefix="curl-http1-")
 os.makedirs(os.path.join(work, ".nift"), exist_ok=True)
 subprocess.run([NIFT, "add", PKG], cwd=work, check=True, capture_output=True)
 

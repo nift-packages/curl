@@ -32,8 +32,10 @@ def write_fake_curl(bin_dir, body):
     os.chmod(sh, 0o755)
     return sh
 
-work = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".options-work")
-shutil.rmtree(work, ignore_errors=True)
+import tempfile
+# Keep the work directory OUTSIDE the package root (see dogfood.py): a work dir
+# nested inside the package recurses on Windows where local packages are copied.
+work = tempfile.mkdtemp(prefix="curl-options-")
 os.makedirs(os.path.join(work, ".nift"), exist_ok=True)
 subprocess.run([NIFT, "add", PKG], cwd=work, check=True, capture_output=True)
 
