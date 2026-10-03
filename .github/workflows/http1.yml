@@ -61,9 +61,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          export PATH="$PATH:$(cygpath -u "$pythonLocation")"
+          # Prefer the native Windows curl: the MSYS2/cygwin curl mishandles
+          # native Windows paths passed to --data-binary @file. Also point the
+          # temp environment at a Windows path the native nift.exe can open.
+          export PATH="/c/Windows/System32:$PATH:$(cygpath -u "$pythonLocation")"
+          export TMPDIR="$(cygpath -w "$RUNNER_TEMP")"
+          export TEMP="$TMPDIR"
+          export TMP="$TMPDIR"
           python3 --version
-          curl --version | head -2
+          curl --version | head -1
           NIFT="$(cygpath -w "$PWD/nift/nift.exe")"
           PKG="$(cygpath -w "$PWD/curl")"
           python3 curl/tests/dogfood.py "$NIFT" "$PKG"
