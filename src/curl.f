@@ -137,17 +137,19 @@ struct(curl) {
     }
 
     private fn(temp_file()) {
-        // A helper may return a path this native process cannot open (for
-        // example an MSYS2 mktemp returning "/tmp/..." to a native nift.exe),
-        // so verify the file is reachable before using it and otherwise fall
-        // through to the next strategy.
-        if(which("mktemp") != null) {
+        // On Windows an MSYS2/cygwin mktemp creates a file under a POSIX path
+        // this native process cannot open, and rejecting its output would
+        // orphan the file, so use the PowerShell temp helper there instead.
+        // Elsewhere mktemp is preferred. A helper path is accepted only when
+        // this process can actually reach it.
+        if(os() == "windows") {
+            if(which("powershell.exe") != null) {
+                p := run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[System.IO.Path]::GetTempFileName()")
+                if(p.exit_code == 0 && p.stdout.trim() != "" && exists(p.stdout.trim())) { return p.stdout.trim() }
+            }
+        } else if(which("mktemp") != null) {
             m := run("mktemp")
             if(m.exit_code == 0 && m.stdout.trim() != "" && exists(m.stdout.trim())) { return m.stdout.trim() }
-        }
-        if(os() == "windows" && which("powershell.exe") != null) {
-            p := run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[System.IO.Path]::GetTempFileName()")
-            if(p.exit_code == 0 && p.stdout.trim() != "" && exists(p.stdout.trim())) { return p.stdout.trim() }
         }
         attempts := 0
         while(attempts < 1000) {

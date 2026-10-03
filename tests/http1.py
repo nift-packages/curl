@@ -126,7 +126,17 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         pass
 
 
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
+class _Server(http.server.ThreadingHTTPServer):
+    # curl closes keep-alive connections abruptly; do not let the resulting
+    # ConnectionAborted/Reset noise look like a test failure.
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
+server = _Server(("127.0.0.1", 0), Fixture)
 port = server.server_address[1]
 threading.Thread(target=server.serve_forever, daemon=True).start()
 
