@@ -1,0 +1,71 @@
+name: curl HTTP client
+
+# Package-owned cross-platform certification for the curl HTTP client. Builds
+# the current nift-dev/nift main (the client targets unreleased 4.6 behavior)
+# and runs the package test suites against the built binary on Linux, macOS and
+# Windows. The production package has no Python dependency; Python is used only
+# by the test harness.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  http1:
+    name: ${{ matrix.os }} HTTP client
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: curl
+      - uses: actions/checkout@v5
+        with:
+          repository: nift-dev/nift
+          ref: main
+          path: nift
+      # setup-python is Windows-only, matching the core workflow; the test
+      # harness needs a Windows Python to drive the built nift.exe.
+      - uses: actions/setup-python@v6
+        if: runner.os == 'Windows'
+        with:
+          python-version: '3.x'
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-winpthreads
+      - name: Build Nift
+        if: runner.os != 'Windows'
+        run: make -C nift -j2
+      - name: Build Nift on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: make -C nift -j2
+      - name: HTTP client suites
+        if: runner.os != 'Windows'
+        run: |
+          python3 --version
+          curl --version | head -2
+          python3 curl/tests/dogfood.py "$PWD/nift/nift" "$PWD/curl"
+          python3 curl/tests/http1.py "$PWD/nift/nift" "$PWD/curl"
+          python3 curl/tests/options.py "$PWD/nift/nift" "$PWD/curl"
+      - name: HTTP client suites on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export PATH="$PATH:$(cygpath -u "$pythonLocation")"
+          python3 --version
+          curl --version | head -2
+          NIFT="$(cygpath -w "$PWD/nift/nift.exe")"
+          PKG="$(cygpath -w "$PWD/curl")"
+          python3 curl/tests/dogfood.py "$NIFT" "$PKG"
+          python3 curl/tests/http1.py "$NIFT" "$PKG"
+          python3 curl/tests/options.py "$NIFT" "$PKG"
