@@ -80,7 +80,7 @@ def run_case(name, script, pairs=(), flags=(), absent=(), url_contains=None):
     path = os.path.join(work, "case.f")
     with open(path, "w") as f:
         f.write('@import("curl")\n' + script + "\n")
-    out = subprocess.run([NIFT, "case.f"], cwd=work, capture_output=True, text=True, env=env)
+    out = subprocess.run([NIFT, "case.f"], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
     argv = []
     with open(log) as f:
         for line in f:
@@ -161,7 +161,7 @@ print(curl.get("http://fake/", {"headers": {"X-Custom": "v"}}).status)
 path = os.path.join(work, "cleanup.f")
 with open(path, "w") as f:
     f.write(script)
-out = subprocess.run([NIFT, "cleanup.f"], cwd=work, capture_output=True, text=True, env=env)
+out = subprocess.run([NIFT, "cleanup.f"], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
 leftovers = [n for n in os.listdir(tmpdir) if n.startswith(".nift-curl-") and n.endswith(".tmp")]
 check("scratch temp files cleaned up", out.returncode == 0 and leftovers == [],
       out.stdout + out.stderr + "\nleftovers=" + str(leftovers))
@@ -194,7 +194,7 @@ sys.stdout.write("200\\thttp://fake/effective")
 ''' % sentinel)
 with open(os.path.join(work, "fail.f"), "w") as f:
     f.write('@import("curl")\nprint(curl.get("http://fake/").error_code)\n')
-out = subprocess.run([NIFT, "fail.f"], cwd=work, capture_output=True, text=True, env=env)
+out = subprocess.run([NIFT, "fail.f"], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
 leftovers = [n for n in os.listdir(tmpdir) if n.startswith(".nift-curl-") and n.endswith(".tmp")]
 check("scratch temp files cleaned after transport failure",
       out.returncode == 0 and out.stdout.strip() == "transport_failure" and leftovers == [],

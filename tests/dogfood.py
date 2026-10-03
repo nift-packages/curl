@@ -140,7 +140,7 @@ print(curl.backend())
 """
 with open(os.path.join(work, "t.f"), "w") as f:
     f.write(script)
-out = subprocess.run([NIFT, "t.f"], cwd=work, capture_output=True, text=True)
+out = subprocess.run([NIFT, "t.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 lines = out.stdout.strip().splitlines()
 expected = [
     "true",
@@ -175,14 +175,14 @@ check("output file is not re-buffered", open(os.path.join(work, "download.bin"),
 # Privacy: private helpers must not be visible to the importer.
 with open(os.path.join(work, "priv.f"), "w") as f:
     f.write('@import("curl")\nprint(curl.parse_headers(""))\n')
-priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True)
+priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("private methods not leaked", priv.returncode != 0)
 
 # Compatibility aliases retain the original facade when the consumer rebinds
 # the separately exported curl binding.
 with open(os.path.join(work, "alias-pin.f"), "w") as f:
     f.write(f'@import("curl")\ncurl = "reassigned"\nprint(get("http://127.0.0.1:{port}/").body)\n')
-alias_pin = subprocess.run([NIFT, "alias-pin.f"], cwd=work, capture_output=True, text=True)
+alias_pin = subprocess.run([NIFT, "alias-pin.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("compatibility aliases pin facade", alias_pin.returncode == 0 and alias_pin.stdout.strip() == "get-ok", alias_pin.stdout + alias_pin.stderr)
 
 # Fresh and copied facades share package-global backend/temp state. Consumer
@@ -239,7 +239,7 @@ shared = subprocess.run(
     [NIFT, "shared-state.f"],
     cwd=work,
     capture_output=True,
-    text=True,
+    text=True, encoding="utf-8",
     env={
         **os.environ,
         "PATH": fake_bin,
@@ -269,19 +269,19 @@ check(
 # --no-process: package reports backend unavailability without invoking run().
 with open(os.path.join(work, "np.f"), "w") as f:
     f.write(f'@import("curl")\nr := curl.get("http://127.0.0.1:{port}/")\nprint(r.error_code)\n')
-np = subprocess.run([NIFT, "np.f", "--no-process"], cwd=work, capture_output=True, text=True)
+np = subprocess.run([NIFT, "np.f", "--no-process"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("--no-process is structured", np.returncode == 0 and np.stdout.strip() == "backend_unavailable", np.stdout + np.stderr)
 
 with open(os.path.join(work, "nc.f"), "w") as f:
     f.write('@import("curl")\nprint(curl.available())\nprint(curl.backends().size())\nr := curl.get("http://example.invalid")\nprint(r.error_code)\n')
 missing_path = os.path.join(work, "empty-path")
 os.makedirs(missing_path, exist_ok=True)
-nocurl = subprocess.run([NIFT, "nc.f"], cwd=work, capture_output=True, text=True, env={**os.environ, "PATH": missing_path})
+nocurl = subprocess.run([NIFT, "nc.f"], cwd=work, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PATH": missing_path})
 check("missing curl is structured", nocurl.returncode == 0 and nocurl.stdout.strip().splitlines() == ["false", "0", "backend_unavailable"], nocurl.stdout + nocurl.stderr)
 
 with open(os.path.join(work, "available.f"), "w") as f:
     f.write('@import("curl")\nprint(curl.available())\n')
-avail = subprocess.run([NIFT, "available.f"], cwd=work, capture_output=True, text=True)
+avail = subprocess.run([NIFT, "available.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("curl.available", avail.stdout.strip() == "true", avail.stdout + avail.stderr)
 
 # A process-only PATH exercises the checked package-local temporary fallback.
@@ -298,7 +298,7 @@ if curl_path is not None:
         [NIFT, "t.f"],
         cwd=work,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         env={**os.environ, "PATH": curl_only, "TMPDIR": work, "TEMP": work, "TMP": work},
     )
     check("temporary-file fallback", fallback.returncode == 0 and fallback.stdout.strip().splitlines() == expected, fallback.stdout + fallback.stderr)

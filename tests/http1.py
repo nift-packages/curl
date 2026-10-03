@@ -153,7 +153,7 @@ def run_script(name, script, env=None, timeout=None):
     with open(path, "w") as f:
         f.write(script)
     return subprocess.run(
-        [NIFT, name], cwd=work, capture_output=True, text=True,
+        [NIFT, name], cwd=work, capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, **(env or {})}, timeout=timeout,
     )
 
@@ -294,7 +294,7 @@ script = f'@import("curl")\ns := curl.session({{"persist_cookies": true}})\ncurl
 path = os.path.join(work, "t5c.f")
 with open(path, "w") as f:
     f.write(script)
-owned = subprocess.run([NIFT, "t5c.f"], cwd=work, capture_output=True, text=True,
+owned = subprocess.run([NIFT, "t5c.f"], cwd=work, capture_output=True, text=True, encoding="utf-8",
                        env={**os.environ, "TMPDIR": owned_tmp, "TEMP": owned_tmp, "TMP": owned_tmp})
 leftovers = os.listdir(owned_tmp)
 check("owned session jar removed on close", owned.returncode == 0 and owned.stdout.strip() == "true" and leftovers == [],
@@ -412,7 +412,7 @@ print(r.error_code)
 path = os.path.join(work, "t11.f")
 with open(path, "w") as f:
     f.write(script)
-np = subprocess.run([NIFT, "t11.f", "--no-process"], cwd=work, capture_output=True, text=True)
+np = subprocess.run([NIFT, "t11.f", "--no-process"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("--no-process structured failure", np.stdout.strip().splitlines() == ["false", "backend_unavailable"],
       np.stdout + np.stderr)
 
@@ -454,7 +454,7 @@ script = ('@import("curl")\n'
 path = os.path.join(work, "t14.f")
 with open(path, "w") as f:
     f.write(script)
-noproc = subprocess.run([NIFT, "t14.f", "--no-process"], cwd=work, capture_output=True, text=True)
+noproc = subprocess.run([NIFT, "t14.f", "--no-process"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("inspection safe under --no-process", noproc.returncode == 0
       and noproc.stdout.strip().splitlines() == ["v=[]", "f=[]", "false", "false"], noproc.stdout + noproc.stderr)
 
@@ -474,7 +474,7 @@ if curl_path is not None:
         f.write(script)
     env = {k: v for k, v in os.environ.items() if k not in ("TMPDIR", "TEMP", "TMP")}
     env["PATH"] = only
-    fallback = subprocess.run([NIFT, "t15.f"], cwd=work, capture_output=True, text=True, env=env)
+    fallback = subprocess.run([NIFT, "t15.f"], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
     check("temporary fallback with TMPDIR unset", fallback.returncode == 0 and fallback.stdout.strip() == "get-ok",
           fallback.stdout + fallback.stderr)
 
