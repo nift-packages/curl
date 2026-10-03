@@ -14,6 +14,26 @@ NIFT = sys.argv[1] if len(sys.argv) > 1 else "nift"
 PKG = sys.argv[2] if len(sys.argv) > 2 else "."
 
 
+def write_fake_curl(bin_dir, body):
+    """Create a fake `curl` discoverable by Nift's which() on every platform.
+    POSIX uses a shebang script; Windows uses a .cmd wrapper (a bare Python
+    script named curl.exe is not a valid PE and would never execute)."""
+    py = os.path.join(bin_dir, "fake_curl.py")
+    with open(py, "w") as f:
+        f.write(body)
+    if os.name == "nt":
+        cmd = os.path.join(bin_dir, "curl.cmd")
+        with open(cmd, "w") as f:
+            f.write('@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, py))
+        return cmd
+    sh = os.path.join(bin_dir, "curl")
+    with open(sh, "w") as f:
+        f.write("#!%s\n" % sys.executable)
+        f.write(body)
+    os.chmod(sh, 0o755)
+    return sh
+
+
 class H(http.server.BaseHTTPRequestHandler):
     def _send(self, code=200, body=b"ok"):
         self.send_response(code)
@@ -170,9 +190,7 @@ shared_temp = os.path.join(work, "shared-temp")
 os.makedirs(fake_bin, exist_ok=True)
 os.makedirs(shared_temp, exist_ok=True)
 fake_log = os.path.join(work, "fake-curl.log")
-fake_curl = os.path.join(fake_bin, "curl.exe" if os.name == "nt" else "curl")
-with open(fake_curl, "w") as f:
-    f.write(f"""#!{sys.executable}
+write_fake_curl(fake_bin, '''
 import os
 import sys
 
@@ -186,8 +204,7 @@ with open(header, "w") as response_headers:
 with open(output, "w") as response_body:
     response_body.write("fake-ok")
 sys.stdout.write("200")
-""")
-os.chmod(fake_curl, 0o755)
+''')
 with open(os.path.join(work, "shared-state.f"), "w") as f:
     f.write('''curl_backend_requested := "native"
 curl_backend_locked := true

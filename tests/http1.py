@@ -89,6 +89,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             self._send(200, json.dumps({
                 "method": self.command,
                 "x_custom": hdr.get("x-custom", ""),
+                "x_session": hdr.get("x-session", ""),
                 "user_agent": hdr.get("user-agent", ""),
             }, sort_keys=True).encode())
         else:
@@ -258,6 +259,44 @@ check("session cookie persistence", len(lines) >= 3 and lines[1] == "200" and "s
       out.stdout + out.stderr)
 check("session close", len(lines) >= 5 and lines[3] == "true" and lines[4] == "invalid_session",
       out.stdout + out.stderr)
+
+# ---- 5b. session lifecycle --------------------------------------------------
+script = f"""
+@import("curl")
+base := "{base}"
+s1 := curl.session({{"headers": {{"X-Session": "one"}}}})
+s2 := curl.session({{"headers": {{"X-Session": "two"}}}})
+print(curl.get(base + "/echo", {{"session": s1}}).body)
+print(curl.get(base + "/echo", {{"session": s2}}).body)
+print(curl.get(base + "/echo", {{"session": s1, "headers": {{"X-Session": "override"}}}}).body)
+caller := curl.session({{"cookie_jar": "jar.txt"}})
+curl.get(base + "/cookies/set", {{"session": caller}})
+print(curl.get(base + "/cookies/get", {{"session": caller}}).body)
+print(curl.session_close(caller).ok)
+print(exists("jar.txt"))
+"""
+out = run_script("t5b.f", script)
+lines = out.stdout.strip().splitlines()
+check("two sessions isolated", len(lines) >= 2 and json.loads(lines[0])["x_session"] == "one"
+      and json.loads(lines[1])["x_session"] == "two", out.stdout + out.stderr)
+check("per-request overrides session", len(lines) >= 3 and json.loads(lines[2])["x_session"] == "override",
+      out.stdout + out.stderr)
+check("caller-owned cookie jar preserved", len(lines) >= 5 and "session=abc123" in lines[3] and lines[4] == "true"
+      and os.path.exists(os.path.join(work, "jar.txt")), out.stdout + out.stderr)
+
+# owned session jar is removed by session_close (dedicated TMPDIR)
+owned_tmp = os.path.join(work, "owned-tmp")
+shutil.rmtree(owned_tmp, ignore_errors=True)
+os.makedirs(owned_tmp, exist_ok=True)
+script = f'@import("curl")\ns := curl.session({{"persist_cookies": true}})\ncurl.get("{base}/cookies/set", {{"session": s}})\nprint(curl.session_close(s).ok)\n'
+path = os.path.join(work, "t5c.f")
+with open(path, "w") as f:
+    f.write(script)
+owned = subprocess.run([NIFT, "t5c.f"], cwd=work, capture_output=True, text=True,
+                       env={**os.environ, "TMPDIR": owned_tmp, "TEMP": owned_tmp, "TMP": owned_tmp})
+leftovers = os.listdir(owned_tmp)
+check("owned session jar removed on close", owned.returncode == 0 and owned.stdout.strip() == "true" and leftovers == [],
+      owned.stdout + owned.stderr + "\nleftovers=" + str(leftovers))
 
 # ---- 6. redirects + timeout --------------------------------------------------
 script = f"""
