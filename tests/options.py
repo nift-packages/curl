@@ -131,6 +131,38 @@ run_case("basic auth", 'print(curl.get("http://fake/", {"auth": {"user": "u", "p
          pairs=[("-u", "u:p")])
 run_case("bearer auth", 'print(curl.get("http://fake/", {"auth": {"bearer": "tok"}}).status)',
          pairs=[("-H", "Authorization: Bearer tok")])
+# Auth values must be validated against line breaks exactly like headers,
+# cookies, and the raw `authorization` string.
+def str_expr(value):
+    return "bytes([" + ",".join(str(b) for b in value.encode("utf-8")) + ']).decode("utf-8")'
+
+
+auth_crlf_payloads = {
+    "bearer": {"auth": {"bearer": "tok\r\nX-Evil: 1"}},
+    "token": {"auth": {"token": "tok\nX-Evil: 1"}},
+    "basic user": {"auth": {"basic": {"user": "u\r\nX-Evil", "password": "p"}}},
+    "basic password": {"auth": {"basic": {"user": "u", "password": "p\nX-Evil: 1"}}},
+}
+for label, opts in auth_crlf_payloads.items():
+    # build a Nift expression explicitly per shape
+    if label == "bearer":
+        auth_expr = '{"bearer": ' + str_expr("tok\r\nX-Evil: 1") + "}"
+    elif label == "token":
+        auth_expr = '{"token": ' + str_expr("tok\nX-Evil: 1") + "}"
+    elif label == "basic user":
+        auth_expr = '{"basic": {"user": ' + str_expr("u\r\nX-Evil") + ', "password": "p"}}'
+    else:
+        auth_expr = '{"basic": {"user": "u", "password": ' + str_expr("p\nX-Evil: 1") + "}}"
+    script = 'print(curl.get("http://fake/", {"auth": ' + auth_expr + "}).error_code)"
+    open(log, "w").close()
+    path = os.path.join(work, "authcrlf.f")
+    with open(path, "w") as f:
+        f.write('@import("curl")\n' + script + "\n")
+    out = subprocess.run([NIFT, "authcrlf.f"], cwd=work, capture_output=True, text=True, encoding="utf-8", env=env)
+    argv = [json.loads(l) for l in open(log) if l.strip()]
+    check(f"auth {label} line break rejected",
+          out.returncode == 0 and out.stdout.strip() == "invalid_header" and argv == [],
+          out.stdout + out.stderr + "\nargv=" + json.dumps(argv))
 run_case("query encoding", 'print(curl.get("http://fake/", {"query": {"a": "b c"}}).status)',
          url_contains="a=b%20c")
 run_case("form encoding", 'print(curl.post("http://fake/", {"form": {"a": "b c"}}).status)',

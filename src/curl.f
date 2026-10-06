@@ -322,6 +322,19 @@ struct(curl) {
         return url + sep + parts.join("&")
     }
 
+    private fn(auth_valid(auth)) {
+        if(type(auth) != "object") { return false }
+        if(auth.has("bearer") && type(auth.bearer) == "string" && this.has_crlf(auth.bearer)) { return false }
+        if(auth.has("token") && type(auth.token) == "string" && this.has_crlf(auth.token)) { return false }
+        if(auth.has("basic") && type(auth.basic) == "object") {
+            if(auth.basic.has("user") && this.has_crlf(this.str_of(auth.basic.user))) { return false }
+            if(auth.basic.has("password") && this.has_crlf(this.str_of(auth.basic.password))) { return false }
+        }
+        if(auth.has("user") && type(auth.user) == "string" && this.has_crlf(auth.user)) { return false }
+        if(auth.has("password") && this.has_crlf(this.str_of(auth.password))) { return false }
+        return true
+    }
+
     private fn(auth_args(auth)) {
         out := []
         if(type(auth) != "object") { return out }
@@ -456,6 +469,7 @@ struct(curl) {
             for(t : this.headers_args(opts.headers)) { args.push(t) }
         }
         if(opts.has("auth")) {
+            if(!this.auth_valid(opts.auth)) { return {"error":"auth user/password/token contains a line break","error_code":"invalid_header","args":args,"temps":temps,"method":"GET"} }
             for(t : this.auth_args(opts.auth)) { args.push(t) }
         }
         if(opts.has("authorization") && type(opts.authorization) == "string") {

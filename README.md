@@ -42,9 +42,34 @@ curl.download(url, path, opts?)   // GET to a file; response.body is null
 curl.upload(url, path, opts?)     // PUT a file; method defaults to PUT
 ```
 
-The direct `request`, `get`, `post`, `put`, `patch`, `delete` and `head` exports
-remain temporarily as deprecated v0.x compatibility aliases. New code should
-use the `curl` facade so imports do not claim generic caller bindings.
+## Compatibility aliases
+
+The top-level `request`, `get`, `post`, `put`, `patch`, `delete` and `head`
+exports are **deprecated compatibility aliases** and are kept.
+
+They were the package's original v0.x public API. When the `curl` facade was
+introduced they were retained as thin delegates (each alias forwards through
+the facade, so a request made through an alias is byte-for-byte identical to
+the facade call). The external Nift regression suite (`v44_curl_combined_smoke`)
+still uses the top-level `request`/`delete` aliases, so removing them would
+break that independent contract until it is updated first.
+
+New code should use the `curl` facade so imports do not claim generic caller
+bindings:
+
+```text
+old                    new
+request(url, opts?)    curl.request(url, opts?)
+get(url, opts?)        curl.get(url, opts?)
+post(url, opts?)       curl.post(url, opts?)
+put(url, opts?)        curl.put(url, opts?)
+patch(url, opts?)      curl.patch(url, opts?)
+delete(url, opts?)     curl.delete(url, opts?)
+head(url, opts?)       curl.head(url, opts?)
+```
+
+A future major version may remove the aliases after the external regression
+suite is migrated to the facade.
 
 Backend selection and facility inspection live on `curl`:
 
@@ -93,6 +118,12 @@ max_redirects: 5                // --max-redirs
 auth: {"user": "u", "password": "p"}   // Basic (-u)
 auth: {"bearer": "token"}       // Authorization: Bearer
 authorization: "Bearer token"   // raw Authorization header
+```
+
+Like `headers`, `cookies`, and the raw `authorization` string, every `auth`
+value (`bearer`, `token`, `basic.user`, `basic.password`, `user`) is validated
+against line breaks and rejected with `error_code: "invalid_header"` if it
+contains one, so an auth value can never inject additional headers.
 cookies: {"theme": "dark"}      // Cookie request header
 cookie_jar: "cookies.txt"       // read/write a Netscape cookie jar (-b/-c)
 proxy: "http://proxy:3128"      // -x
