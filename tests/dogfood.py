@@ -134,7 +134,7 @@ saved := curl.get("http://127.0.0.1:{port}/", {{"output": "download.bin"}})
 print(saved.body == null)
 print(saved.output)
 print(curl.use_backend("auto").error_code)
-print(request("http://127.0.0.1:{port}/").status)
+print(curl.request("http://127.0.0.1:{port}/").status)
 setenv("PATH", pwd() + "/empty-path")
 print(curl.backend())
 """
@@ -178,13 +178,6 @@ with open(os.path.join(work, "priv.f"), "w") as f:
 priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("private methods not leaked", priv.returncode != 0)
 
-# Compatibility aliases retain the original facade when the consumer rebinds
-# the separately exported curl binding.
-with open(os.path.join(work, "alias-pin.f"), "w") as f:
-    f.write(f'@import("curl")\ncurl = "reassigned"\nprint(get("http://127.0.0.1:{port}/").body)\n')
-alias_pin = subprocess.run([NIFT, "alias-pin.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
-check("compatibility aliases pin facade", alias_pin.returncode == 0 and alias_pin.stdout.strip() == "get-ok", alias_pin.stdout + alias_pin.stderr)
-
 # Fresh and copied facades share package-global backend/temp state. Consumer
 # bindings matching implementation globals and every method parameter name
 # must not shadow the methods' captured module bindings or call parameters.
@@ -213,7 +206,6 @@ with open(os.path.join(work, "shared-state.f"), "w") as f:
 curl_backend_locked := true
 curl_backend_selected := "hijacked"
 curl_temp_seq := 900
-curl_alias_target := "hijacked"
 content := "hijacked"
 text := "hijacked"
 v := "hijacked"
@@ -231,7 +223,6 @@ print(fresh.use_backend("process").ok)
 print(curl.get("http://fake/exported").body)
 print(fresh.get("http://fake/fresh").body)
 print(copy.get("http://fake/copy").body)
-print(get("http://fake/alias").body)
 print(fresh.use_backend("auto").error_code)
 print(copy.backend())
 ''')
@@ -249,12 +240,11 @@ shared = subprocess.run(
         "FAKE_CURL_LOG": fake_log,
     },
 )
-shared_expected = ["true", "fake-ok", "fake-ok", "fake-ok", "fake-ok", "backend_locked", "process"]
+shared_expected = ["true", "fake-ok", "fake-ok", "fake-ok", "backend_locked", "process"]
 sequence_expected = [
     ".nift-curl-1.tmp,.nift-curl-2.tmp",
     ".nift-curl-3.tmp,.nift-curl-4.tmp",
     ".nift-curl-5.tmp,.nift-curl-6.tmp",
-    ".nift-curl-7.tmp,.nift-curl-8.tmp",
 ]
 sequence = []
 if os.path.exists(fake_log):

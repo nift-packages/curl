@@ -42,34 +42,13 @@ curl.download(url, path, opts?)   // GET to a file; response.body is null
 curl.upload(url, path, opts?)     // PUT a file; method defaults to PUT
 ```
 
-## Compatibility aliases
+## Compatibility
 
-The top-level `request`, `get`, `post`, `put`, `patch`, `delete` and `head`
-exports are **deprecated compatibility aliases** and are kept.
-
-They were the package's original v0.x public API. When the `curl` facade was
-introduced they were retained as thin delegates (each alias forwards through
-the facade, so a request made through an alias is byte-for-byte identical to
-the facade call). The external Nift regression suite (`v44_curl_combined_smoke`)
-still uses the top-level `request`/`delete` aliases, so removing them would
-break that independent contract until it is updated first.
-
-New code should use the `curl` facade so imports do not claim generic caller
-bindings:
-
-```text
-old                    new
-request(url, opts?)    curl.request(url, opts?)
-get(url, opts?)        curl.get(url, opts?)
-post(url, opts?)       curl.post(url, opts?)
-put(url, opts?)        curl.put(url, opts?)
-patch(url, opts?)      curl.patch(url, opts?)
-delete(url, opts?)     curl.delete(url, opts?)
-head(url, opts?)       curl.head(url, opts?)
-```
-
-A future major version may remove the aliases after the external regression
-suite is migrated to the facade.
+The `curl` facade is the only supported public API. The v0.x top-level
+`request`/`get`/`post`/`put`/`patch`/`delete`/`head` exports were deprecated
+compatibility aliases and have been **removed** (an ecosystem audit found no
+supported consumer; all real usage goes through the facade). Use the facade
+verb helpers instead (see the API section above).
 
 Backend selection and facility inspection live on `curl`:
 

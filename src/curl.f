@@ -661,22 +661,5 @@ struct(curl) {
 }
 
 curl := curl()
-curl_alias_target := curl
 
-// Deprecated v0.x compatibility aliases delegate through the public facade.
-request := (url, ...rest) => curl_alias_target.request(url, ...rest)
-get := (url, ...rest) => curl_alias_target.get(url, ...rest)
-post := (url, ...rest) => curl_alias_target.post(url, ...rest)
-put := (url, ...rest) => curl_alias_target.put(url, ...rest)
-patch := (url, ...rest) => curl_alias_target.patch(url, ...rest)
-delete := (url, ...rest) => curl_alias_target.delete(url, ...rest)
-head := (url, ...rest) => curl_alias_target.head(url, ...rest)
-
-export(request)
-export(get)
-export(post)
-export(put)
-export(patch)
-export(delete)
-export(head)
 export(curl)
