@@ -178,6 +178,14 @@ with open(os.path.join(work, "priv.f"), "w") as f:
 priv = subprocess.run([NIFT, "priv.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
 check("private methods not leaked", priv.returncode != 0)
 
+# The deprecated v0.x top-level aliases are no longer exported; only the `curl`
+# facade is. Each of these member-free names must be an unknown value.
+for alias_name in ["request", "get", "post", "put", "patch", "delete", "head"]:
+    with open(os.path.join(work, "alias.f"), "w") as f:
+        f.write(f'@import("curl")\nprint({alias_name}("http://127.0.0.1:{port}/"))\n')
+    gone = subprocess.run([NIFT, "alias.f"], cwd=work, capture_output=True, text=True, encoding="utf-8")
+    check(f"deprecated top-level alias {alias_name} removed", gone.returncode != 0, gone.stdout + gone.stderr)
+
 # Fresh and copied facades share package-global backend/temp state. Consumer
 # bindings matching implementation globals and every method parameter name
 # must not shadow the methods' captured module bindings or call parameters.
